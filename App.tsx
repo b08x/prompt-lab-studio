@@ -219,7 +219,7 @@ const App: React.FC = () => {
         <p className="text-slate-500 mt-1 md:mt-2 text-base">Iteratively craft, test, and export structured AI prompts with dynamic variables and chat.</p>
       </header>
 
-      <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-5 gap-6"> {/* Updated grid columns */}
+      <div className="max-w-screen-2xl mx-auto grid grid-cols-1 xl:grid-cols-5 gap-6"> {/* Updated grid columns */}
         {/* Left Column: Inputs, Attribute Management, Preview & Export */}
         <div className="xl:col-span-3 space-y-6"> {/* Updated col-span */}
           <div className="bg-white p-6 rounded-xl shadow-lg space-y-6">

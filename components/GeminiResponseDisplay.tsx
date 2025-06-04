@@ -1,7 +1,9 @@
 
-import React from 'react';
-import { LoadingSpinnerIcon, ExternalLinkIcon } from './icons';
-import { GeminiResponse as GeminiResponseType } from '../types'; // Renamed to avoid conflict
+import React, { useState } from 'react'; // Added useState
+import { LoadingSpinnerIcon, ExternalLinkIcon, ClipboardDocumentIcon, CheckIcon } from './icons'; // Added ClipboardDocumentIcon, CheckIcon
+import { GeminiResponse as GeminiResponseType } from '../types';
+import ReactMarkdown from 'https://esm.sh/react-markdown@9';
+import remarkGfm from 'https://esm.sh/remark-gfm@4';
 
 interface GeminiResponseDisplayProps {
   response: GeminiResponseType | null;
@@ -10,6 +12,50 @@ interface GeminiResponseDisplayProps {
 }
 
 const GeminiResponseDisplay: React.FC<GeminiResponseDisplayProps> = ({ response, isLoading, error }) => {
+  
+  const customRenderers = {
+    code: ({ node, inline, className, children, ...props }) => {
+      const [isCopied, setIsCopied] = useState(false);
+      const codeString = String(children).replace(/\n$/, '');
+
+      const handleCopy = () => {
+        if (!codeString) return;
+        navigator.clipboard.writeText(codeString).then(() => {
+          setIsCopied(true);
+          setTimeout(() => setIsCopied(false), 2000);
+        }).catch(err => {
+          console.error('Failed to copy code:', err);
+          alert('Failed to copy code. Ensure you are in a secure context (HTTPS) or have clipboard permissions.');
+        });
+      };
+
+      const match = /language-(\w+)/.exec(className || '');
+
+      if (inline) {
+        return <code className={`bg-slate-200 text-slate-800 px-1 py-0.5 rounded-sm text-xs font-mono ${className || ''}`} {...props}>{children}</code>;
+      }
+
+      return (
+        <div className="relative group my-3">
+          <button
+            onClick={handleCopy}
+            className="absolute top-2 right-2 z-10 p-1.5 bg-slate-600 text-white rounded-md text-xs opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-slate-700 disabled:opacity-50"
+            aria-label={isCopied ? "Copied!" : "Copy code to clipboard"}
+            title={isCopied ? "Copied!" : "Copy code to clipboard"}
+            disabled={isCopied}
+          >
+            {isCopied ? <CheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
+          </button>
+          <pre className={`${className || ''} rounded-md overflow-x-auto`} {...props}>
+            <code className={match ? `language-${match[1]}` : ''}>
+              {children}
+            </code>
+          </pre>
+        </div>
+      );
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-4 border border-slate-200 rounded-lg bg-white shadow flex flex-col items-center justify-center min-h-[150px]">
@@ -36,22 +82,16 @@ const GeminiResponseDisplay: React.FC<GeminiResponseDisplayProps> = ({ response,
     );
   }
   
-  // Sanitize text before rendering as HTML if necessary, or use a markdown parser for rich text
-  // For simplicity, using <pre> for basic formatting.
-  // In a real app, consider `react-markdown` for proper Markdown rendering.
-  const formattedText = response.text.replace(/```([\s\S]*?)```/g, (match, p1) => {
-    const codeContent = p1.trim().split('\n').slice(1).join('\n'); // Attempt to remove language hint like "json"
-    return `<pre class="bg-slate-800 text-white p-2 rounded-md my-2 overflow-x-auto">${codeContent || p1.trim()}</pre>`;
-  }).replace(/\n/g, '<br />');
-
-
   return (
     <div className="p-4 border border-slate-200 rounded-lg bg-white shadow">
       <h3 className="text-lg font-semibold text-slate-700 mb-2">AI Response</h3>
       <div 
-        className="prose prose-sm max-w-none text-slate-700 whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto"
-        dangerouslySetInnerHTML={{ __html: formattedText }} // Basic formatting for newlines and code blocks
-      />
+        className="prose prose-sm max-w-none text-slate-700 max-h-[400px] overflow-y-auto" 
+      >
+        <ReactMarkdown components={customRenderers} remarkPlugins={[remarkGfm]}>
+          {response.text}
+        </ReactMarkdown>
+      </div>
       {response.groundingChunks && response.groundingChunks.length > 0 && (
         <div className="mt-4 pt-3 border-t border-slate-200">
           <h4 className="text-sm font-semibold text-slate-600 mb-1">Sources (from Google Search):</h4>

@@ -1,115 +1,233 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { PromptAttribute, ExamplePrompt, GeminiResponse, InputVariable } from './types';
+import { GoogleGenAI, Chat } from '@google/genai'; // For Chat type
+import { PromptAttribute, ExamplePrompt, ChatMessage, InputVariable, Domain } from './types';
 import PromptInput from './components/PromptInput';
 import AttributeCreator from './components/AttributeCreator';
 import AttributeList from './components/AttributeList';
 import StructuredPromptPreview from './components/StructuredPromptPreview';
-import GeminiResponseDisplay from './components/GeminiResponseDisplay';
+import ChatDisplay from './components/ChatDisplay'; 
+import ChatInput from './components/ChatInput';   
 import ExampleLoader from './components/ExampleLoader';
 import ExportPromptButton from './components/ExportPromptButton';
-import InputVariableManager from './components/InputVariableManager'; // New import
-import { generatePromptResponse } from './services/geminiService';
-import { generateFullPromptText } from './utils/promptUtils'; // Updated import
+import InputVariableManager from './components/InputVariableManager';
+import DomainSelector from './components/DomainSelector'; 
+import CodeViewerModal from './components/CodeViewerModal'; // New import
+import { createChatSession, sendChatMessage, MODEL_NAME } from './services/geminiService';
+import { generateFullPromptText } from './utils/promptUtils';
+import { DOMAINS } from './constants'; 
 import { SparklesIcon } from './components/icons';
 
 const generateId = (): string => Math.random().toString(36).substr(2, 9);
 
+interface CodeViewerContent {
+  code: string;
+  language?: string;
+}
+
 const App: React.FC = () => {
   const [basePrompt, setBasePrompt] = useState<string>('');
   const [attributes, setAttributes] = useState<PromptAttribute[]>([]);
-  const [inputVariables, setInputVariables] = useState<InputVariable[]>([]); // New state for variables
-  const [llmResponse, setLlmResponse] = useState<GeminiResponse | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [inputVariables, setInputVariables] = useState<InputVariable[]>([]);
+  const [selectedDomainId, setSelectedDomainId] = useState<string | null>(DOMAINS.find(d => d.id === 'general')?.id || null); 
+
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [currentChatInput, setCurrentChatInput] = useState<string>('');
+  const [chatSession, setChatSession] = useState<Chat | null>(null);
+  
+  const [isResponding, setIsResponding] = useState<boolean>(false); 
+  const [error, setError] = useState<string | null>(null); 
   const [useGoogleSearch, setUseGoogleSearch] = useState<boolean>(false);
+
+  // State for CodeViewerModal
+  const [isCodeViewerOpen, setIsCodeViewerOpen] = useState<boolean>(false);
+  const [codeViewerContent, setCodeViewerContent] = useState<CodeViewerContent>({ code: '', language: undefined });
+
+  const handleOpenCodeViewer = useCallback((code: string, language?: string) => {
+    setCodeViewerContent({ code, language });
+    setIsCodeViewerOpen(true);
+  }, []);
+
+  const handleCloseCodeViewer = useCallback(() => {
+    setIsCodeViewerOpen(false);
+    // Optionally reset content: setCodeViewerContent({ code: '', language: undefined });
+  }, []);
+
+  const resetChat = () => {
+    setChatHistory([]);
+    setChatSession(null);
+    setCurrentChatInput('');
+  };
 
   // --- Attribute Handlers ---
   const handleAddAttribute = useCallback((newAttr: Omit<PromptAttribute, 'id'>) => {
     setAttributes(prev => [...prev, { ...newAttr, id: generateId() }]);
+    resetChat();
   }, []);
 
   const handleUpdateAttribute = useCallback((id: string, updatedAttr: Partial<PromptAttribute>) => {
     setAttributes(prev => prev.map(attr => attr.id === id ? { ...attr, ...updatedAttr } : attr));
+    resetChat();
   }, []);
 
   const handleDeleteAttribute = useCallback((id: string) => {
     setAttributes(prev => prev.filter(attr => attr.id !== id));
+    resetChat();
   }, []);
 
   const handleReorderAttributes = useCallback((reorderedAttributes: PromptAttribute[]) => {
     setAttributes(reorderedAttributes);
+    resetChat();
   }, []);
 
   // --- Input Variable Handlers ---
   const handleAddInputVariable = useCallback(() => {
     setInputVariables(prev => [...prev, { id: generateId(), name: '', testValue: '' }]);
+    resetChat();
   }, []);
 
   const handleUpdateInputVariable = useCallback((id: string, updatedVar: Partial<Pick<InputVariable, 'name' | 'testValue'>>) => {
     setInputVariables(prev => prev.map(v => v.id === id ? { ...v, ...updatedVar } : v));
+    resetChat();
   }, []);
 
   const handleDeleteInputVariable = useCallback((id: string) => {
     setInputVariables(prev => prev.filter(v => v.id !== id));
+    resetChat();
   }, []);
 
+  // --- Domain Handler ---
+  const handleSelectDomain = (domainId: string | null) => {
+    setSelectedDomainId(domainId);
+    resetChat(); 
+  };
 
   const handleLoadExample = useCallback((example: ExamplePrompt) => {
     setBasePrompt(example.basePrompt);
     setAttributes(example.attributes.map(attr => ({ ...attr, id: generateId() })));
     setInputVariables(example.inputVariables ? example.inputVariables.map(v => ({ ...v, id: generateId() })) : []);
-    setLlmResponse(null);
+    setSelectedDomainId(DOMAINS.find(d => d.id === 'general')?.id || null); 
+    resetChat();
     setError(null);
   }, []);
 
-  const handleGenerateResponse = useCallback(async () => {
-    setIsLoading(true);
+  const handleBasePromptChange = (newBasePrompt: string) => {
+    setBasePrompt(newBasePrompt);
+    resetChat();
+  };
+  
+  // --- Chat Handlers ---
+  const handleStartChat = useCallback(async () => {
+    setIsResponding(true);
     setError(null);
-    setLlmResponse(null);
+    resetChat(); 
 
-    // generateFullPromptText now handles substitution using inputVariables
     const fullPromptText = generateFullPromptText(basePrompt, attributes, inputVariables);
     
     if (fullPromptText === "Prompt is empty. Add a base prompt or attributes.") {
-        setError("Prompt is empty. Please add a base prompt or some attributes before generating.");
-        setIsLoading(false);
+        setError("Prompt is empty. Please add content before starting a chat.");
+        setIsResponding(false);
         return;
     }
-
-    // Basic check: if variables are used ({{...}}) but not all defined vars have names or test values.
+    
     const hasPlaceholders = /{{\s*[^}\s]+\s*}}/g.test(basePrompt) || attributes.some(attr => /{{\s*[^}\s]+\s*}}/g.test(attr.value));
-    const allVarsDefined = inputVariables.every(v => v.name.trim() !== "" && v.testValue.trim() !== "");
-    if (inputVariables.length > 0 && !allVarsDefined && hasPlaceholders) {
-        const undefinedVariables = inputVariables.filter(v => v.name.trim() === "" || v.testValue.trim() === "");
+    const allVarsHaveTestValues = inputVariables.every(v => v.name.trim() === "" || v.testValue.trim() !== ""); 
+
+    if (hasPlaceholders && !allVarsHaveTestValues) {
+        const undefinedVariables = inputVariables.filter(v => v.name.trim() !== "" && v.testValue.trim() === "");
         if (undefinedVariables.length > 0) {
-            setError(`Please provide a name and test value for all defined input variables. Missing for: ${undefinedVariables.map(v => v.name || "Unnamed").join(', ')}.`);
-            setIsLoading(false);
-            return;
+             setError(`The prompt uses variables that need test values. Missing for: ${undefinedVariables.map(v => v.name).join(', ')}.`);
+             setIsResponding(false);
+             return;
         }
     }
 
+    const initialUserMessage: ChatMessage = {
+      id: generateId(),
+      role: 'user',
+      text: fullPromptText,
+      timestamp: new Date(),
+    };
+    setChatHistory([initialUserMessage]);
 
     try {
-      const response = await generatePromptResponse(fullPromptText, useGoogleSearch);
-      setLlmResponse(response);
-      if(response.text.startsWith("Error:")) {
-        setError(response.text);
-        setLlmResponse(null);
-      }
+      const chatConfig = { 
+        model: MODEL_NAME, 
+        config: { 
+          ...(useGoogleSearch && { tools: [{googleSearch: {}}] }) 
+        } 
+      };
+      const newChat = createChatSession(chatConfig);
+      setChatSession(newChat);
+
+      const response = await sendChatMessage(newChat, fullPromptText);
+      
+      const modelMessage: ChatMessage = {
+        id: generateId(),
+        role: 'model',
+        text: response.text,
+        groundingChunks: response.groundingChunks,
+        timestamp: new Date(),
+        error: response.text.startsWith("Error:") ? response.text : undefined
+      };
+      setChatHistory(prev => [...prev, modelMessage]);
+      if (modelMessage.error) setError(modelMessage.error);
+
     } catch (e: any) {
-      setError(e.message || "An unexpected error occurred.");
-      setLlmResponse(null);
+      const errorMessage = e.message || "An unexpected error occurred while starting chat.";
+      setError(errorMessage);
+      setChatHistory(prev => [...prev, { 
+        id: generateId(), role: 'model', text: `Error: ${errorMessage}`, error: errorMessage, timestamp: new Date() 
+      }]);
     } finally {
-      setIsLoading(false);
+      setIsResponding(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [basePrompt, attributes, inputVariables, useGoogleSearch]);
 
-  useEffect(() => {
-    setLlmResponse(null);
+
+  const handleSendFollowUp = useCallback(async () => {
+    if (!chatSession || !currentChatInput.trim() || isResponding) return;
+
+    setIsResponding(true);
     setError(null);
-  }, [basePrompt, attributes, inputVariables]);
+
+    const userMessage: ChatMessage = {
+      id: generateId(),
+      role: 'user',
+      text: currentChatInput,
+      timestamp: new Date(),
+    };
+    setChatHistory(prev => [...prev, userMessage]);
+    setCurrentChatInput('');
+
+    try {
+      const response = await sendChatMessage(chatSession, userMessage.text);
+      const modelMessage: ChatMessage = {
+        id: generateId(),
+        role: 'model',
+        text: response.text,
+        groundingChunks: response.groundingChunks,
+        timestamp: new Date(),
+        error: response.text.startsWith("Error:") ? response.text : undefined
+      };
+      setChatHistory(prev => [...prev, modelMessage]);
+      if (modelMessage.error) setError(modelMessage.error);
+
+    } catch (e: any)      {
+      const errorMessage = e.message || "An unexpected error occurred sending message.";
+      setError(errorMessage);
+      setChatHistory(prev => [...prev, { 
+        id: generateId(), role: 'model', text: `Error: ${errorMessage}`, error: errorMessage, timestamp: new Date() 
+      }]);
+    } finally {
+      setIsResponding(false);
+    }
+  }, [chatSession, currentChatInput, isResponding]);
+
+  useEffect(() => {
+    setError(null);
+  }, [basePrompt, attributes, inputVariables, selectedDomainId]);
 
   const isPromptEmpty = !basePrompt.trim() && attributes.length === 0 && inputVariables.length === 0;
 
@@ -117,27 +235,34 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-100 p-4 md:p-8">
       <header className="mb-6 md:mb-8 text-center">
         <h1 className="text-3xl md:text-4xl font-bold text-sky-700 tracking-tight">PromptLab Studio</h1>
-        <p className="text-slate-500 mt-1 md:mt-2 text-base">Iteratively craft, test, and export structured AI prompts with dynamic variables.</p>
+        <p className="text-slate-500 mt-1 md:mt-2 text-base">Iteratively craft, test, and export structured AI prompts with dynamic variables and chat.</p>
       </header>
 
-      <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Left Column (Wider): Inputs, Attribute Management, Preview & Export */}
-        <div className="xl:col-span-2 space-y-6">
-          {/* Section 1: Prompt Definition & Variables */}
+      <div className="max-w-screen-2xl mx-auto grid grid-cols-1 xl:grid-cols-5 gap-6">
+        <div className="xl:col-span-3 space-y-6">
           <div className="bg-white p-6 rounded-xl shadow-lg space-y-6">
-            <PromptInput value={basePrompt} onChange={setBasePrompt} disabled={isLoading} />
-            <AttributeCreator onAddAttribute={handleAddAttribute} disabled={isLoading} />
+            <DomainSelector 
+              domains={DOMAINS}
+              selectedDomainId={selectedDomainId}
+              onSelectDomain={handleSelectDomain}
+              disabled={isResponding}
+            />
+            <PromptInput value={basePrompt} onChange={handleBasePromptChange} disabled={isResponding} />
+            <AttributeCreator 
+              onAddAttribute={handleAddAttribute} 
+              disabled={isResponding}
+              selectedDomainId={selectedDomainId}
+            />
             <InputVariableManager
               variables={inputVariables}
               onAddVariable={handleAddInputVariable}
               onUpdateVariable={handleUpdateInputVariable}
               onDeleteVariable={handleDeleteInputVariable}
-              disabled={isLoading}
+              disabled={isResponding}
             />
-            <ExampleLoader onLoadExample={handleLoadExample} disabled={isLoading} />
+            <ExampleLoader onLoadExample={handleLoadExample} disabled={isResponding} />
           </div>
 
-          {/* Section 2: Attributes */}
           <div className="bg-white p-6 rounded-xl shadow-lg space-y-4">
             <div>
               <h2 className="text-xl font-semibold text-slate-700 mb-3">Prompt Attributes</h2>
@@ -147,13 +272,12 @@ const App: React.FC = () => {
                   onUpdateAttribute={handleUpdateAttribute}
                   onDeleteAttribute={handleDeleteAttribute}
                   onReorderAttributes={handleReorderAttributes}
-                  disabled={isLoading}
+                  disabled={isResponding}
                 />
               </div>
             </div>
           </div>
         
-          {/* Section 3: Preview & Export */}
           <div className="bg-white p-6 rounded-xl shadow-lg space-y-4">
             <StructuredPromptPreview 
               basePrompt={basePrompt} 
@@ -164,39 +288,55 @@ const App: React.FC = () => {
               basePrompt={basePrompt} 
               attributes={attributes} 
               inputVariables={inputVariables} 
-              disabled={isLoading || isPromptEmpty}
+              disabled={isResponding || isPromptEmpty}
             />
           </div>
         </div>
 
-        {/* Right Column (Narrower): Actions and Output */}
-        <div className="xl:col-span-1 space-y-6">
+        <div className="xl:col-span-2 space-y-6"> 
           <div className="bg-white p-6 rounded-xl shadow-lg space-y-4">
             <div className="flex items-center space-x-3 mb-2">
               <input
                 type="checkbox"
                 id="useGoogleSearch"
                 checked={useGoogleSearch}
-                onChange={(e) => setUseGoogleSearch(e.target.checked)}
-                disabled={isLoading}
+                onChange={(e) => { setUseGoogleSearch(e.target.checked); if (chatSession) resetChat(); }}
+                disabled={isResponding} 
                 className="h-4 w-4 text-sky-600 border-slate-300 rounded focus:ring-sky-500"
               />
               <label htmlFor="useGoogleSearch" className="text-sm text-slate-600">
-                Enable Google Search <span className="text-xs text-slate-500">(for recent info)</span>
+                Enable Google Search <span className="text-xs text-slate-500">(for new chats)</span>
               </label>
             </div>
 
             <button
-              onClick={handleGenerateResponse}
-              disabled={isLoading || isPromptEmpty}
+              onClick={handleStartChat}
+              disabled={isResponding || isPromptEmpty}
               className="w-full flex items-center justify-center px-6 py-3 bg-sky-600 text-white rounded-lg shadow hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 transition duration-150 ease-in-out disabled:bg-slate-400 disabled:cursor-not-allowed font-semibold"
             >
               <SparklesIcon className="w-5 h-5 mr-2" />
-              {isLoading ? 'Generating...' : 'Generate Response'}
+              {isResponding && chatHistory.length === 0 ? 'Starting Chat...' : (isResponding ? 'Processing...' : 'Start New Chat')}
             </button>
+             {error && !chatHistory.some(msg => msg.error) && ( 
+                <p className="text-sm text-red-600 p-2 bg-red-50 rounded-md text-center">{error}</p>
+             )}
           </div>
-          <div className="bg-white p-6 rounded-xl shadow-lg sticky top-6">
-            <GeminiResponseDisplay response={llmResponse} isLoading={isLoading} error={error} />
+          
+          <div className="bg-white p-6 rounded-xl shadow-lg sticky top-6 flex flex-col" style={{height: 'calc(100vh - 100px)', maxHeight: '800px'}}>
+            <ChatDisplay 
+              chatHistory={chatHistory} 
+              isLoading={isResponding && chatHistory.length > 0 && chatHistory[chatHistory.length-1].role === 'user'} 
+              isStartingChat={isResponding && chatHistory.length === 0} 
+              onOpenCodeViewer={handleOpenCodeViewer} // Pass handler to ChatDisplay
+            />
+            {chatSession && ( 
+              <ChatInput
+                value={currentChatInput}
+                onChange={setCurrentChatInput}
+                onSend={handleSendFollowUp}
+                disabled={isResponding || !chatSession}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -204,6 +344,13 @@ const App: React.FC = () => {
       <footer className="mt-12 text-center text-sm text-slate-500">
         <p>&copy; {new Date().getFullYear()} PromptLab Studio. Experiment and iterate for the best results!</p>
       </footer>
+
+      <CodeViewerModal
+        isOpen={isCodeViewerOpen}
+        onClose={handleCloseCodeViewer}
+        code={codeViewerContent.code}
+        language={codeViewerContent.language}
+      />
     </div>
   );
 };

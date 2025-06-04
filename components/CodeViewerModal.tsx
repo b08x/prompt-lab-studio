@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ClipboardDocumentIcon, CheckIcon, XMarkIcon } from './icons';
 
 interface CodeViewerModalProps {
@@ -9,16 +9,15 @@ interface CodeViewerModalProps {
   language?: string;
 }
 
-const CodeViewerModal: React.FC<CodeViewerModalProps> = ({ isOpen, onClose, code, language }) => {
+const CodeViewerModal: React.FC<CodeViewerModalProps> = ({ isOpen, onClose, code = '', language }) => {
   const [isCopied, setIsCopied] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isOpen) {
-      setIsCopied(false); // Reset copied state when modal closes
+      setIsCopied(false); // Reset copied state when modal closes/is not open
     }
   }, [isOpen]);
-
-  if (!isOpen) return null;
 
   const handleCopy = () => {
     if (!code) return;
@@ -31,8 +30,9 @@ const CodeViewerModal: React.FC<CodeViewerModalProps> = ({ isOpen, onClose, code
     });
   };
   
-  const modalTitle = language 
-    ? `${language.charAt(0).toUpperCase() + language.slice(1)} Code` 
+  const safeLanguage = typeof language === 'string' ? language : '';
+  const modalTitle = safeLanguage 
+    ? `${safeLanguage.charAt(0).toUpperCase() + safeLanguage.slice(1)} Code` 
     : 'Code Block';
 
   // Handle Esc key to close modal
@@ -44,23 +44,36 @@ const CodeViewerModal: React.FC<CodeViewerModalProps> = ({ isOpen, onClose, code
     };
     if (isOpen) {
       document.addEventListener('keydown', handleKeyDown);
+      // Focus the panel or a focusable element inside for accessibility
+      panelRef.current?.focus();
     }
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen, onClose]);
 
+  // Handle backdrop click more robustly
+  const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
   return (
     <div 
-      className="fixed inset-0 bg-black bg-opacity-60 z-40 flex items-center justify-center p-4 transition-opacity duration-300 ease-in-out"
-      onClick={onClose} // Close on overlay click
+      className={`fixed inset-0 bg-black bg-opacity-60 z-40 flex items-center justify-center p-4 transition-opacity duration-300 ease-in-out ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+      onClick={handleBackdropClick} 
       role="dialog"
       aria-modal="true"
       aria-labelledby="code-viewer-title"
+      aria-hidden={!isOpen}
     >
       <div 
-        className="bg-slate-800 text-slate-100 p-6 rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col relative transform transition-all duration-300 ease-in-out scale-100"
-        onClick={(e) => e.stopPropagation()} // Prevent close when clicking inside modal
+        ref={panelRef}
+        className={`bg-slate-800 text-slate-100 p-6 rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col relative transform transition-all duration-300 ease-in-out ${isOpen ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}`}
+        tabIndex={-1} // Make the panel focusable
       >
         <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-600">
           <h2 id="code-viewer-title" className="text-xl font-semibold text-sky-400">{modalTitle}</h2>
@@ -79,14 +92,12 @@ const CodeViewerModal: React.FC<CodeViewerModalProps> = ({ isOpen, onClose, code
             className="absolute top-2 right-2 z-10 p-1.5 bg-slate-600 text-white rounded-md text-xs hover:bg-slate-500 disabled:opacity-60"
             aria-label={isCopied ? "Copied!" : "Copy code to clipboard"}
             title={isCopied ? "Copied!" : "Copy code to clipboard"}
-            disabled={isCopied}
+            disabled={isCopied || !code}
           >
             {isCopied ? <CheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
           </button>
-          {/* Tailwind's prose classes won't apply directly inside this dark modal unless specifically adapted */}
-          {/* We'll use basic pre/code styling for a code-editor feel */}
           <pre className="p-3 text-sm whitespace-pre-wrap break-all">
-            <code className={language ? `language-${language}` : ''}>
+            <code className={safeLanguage ? `language-${safeLanguage}` : ''}>
               {code}
             </code>
           </pre>

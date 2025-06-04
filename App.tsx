@@ -6,38 +6,57 @@ import PromptInput from './components/PromptInput';
 import AttributeCreator from './components/AttributeCreator';
 import AttributeList from './components/AttributeList';
 import StructuredPromptPreview from './components/StructuredPromptPreview';
-import ChatDisplay from './components/ChatDisplay'; // Renamed
-import ChatInput from './components/ChatInput';   // New
+import ChatDisplay from './components/ChatDisplay'; 
+import ChatInput from './components/ChatInput';   
 import ExampleLoader from './components/ExampleLoader';
 import ExportPromptButton from './components/ExportPromptButton';
 import InputVariableManager from './components/InputVariableManager';
-import DomainSelector from './components/DomainSelector'; // New
+import DomainSelector from './components/DomainSelector'; 
+import CodeViewerModal from './components/CodeViewerModal'; // New import
 import { createChatSession, sendChatMessage, MODEL_NAME } from './services/geminiService';
 import { generateFullPromptText } from './utils/promptUtils';
-import { DOMAINS } from './constants'; // New
+import { DOMAINS } from './constants'; 
 import { SparklesIcon } from './components/icons';
 
 const generateId = (): string => Math.random().toString(36).substr(2, 9);
+
+interface CodeViewerContent {
+  code: string;
+  language?: string;
+}
 
 const App: React.FC = () => {
   const [basePrompt, setBasePrompt] = useState<string>('');
   const [attributes, setAttributes] = useState<PromptAttribute[]>([]);
   const [inputVariables, setInputVariables] = useState<InputVariable[]>([]);
-  const [selectedDomainId, setSelectedDomainId] = useState<string | null>(DOMAINS.find(d => d.id === 'general')?.id || null); // Default to general or null
+  const [selectedDomainId, setSelectedDomainId] = useState<string | null>(DOMAINS.find(d => d.id === 'general')?.id || null); 
 
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [currentChatInput, setCurrentChatInput] = useState<string>('');
   const [chatSession, setChatSession] = useState<Chat | null>(null);
   
-  const [isResponding, setIsResponding] = useState<boolean>(false); // Unified loading state for all AI responses
-  const [error, setError] = useState<string | null>(null); // General error for non-chat specific issues
+  const [isResponding, setIsResponding] = useState<boolean>(false); 
+  const [error, setError] = useState<string | null>(null); 
   const [useGoogleSearch, setUseGoogleSearch] = useState<boolean>(false);
+
+  // State for CodeViewerModal
+  const [isCodeViewerOpen, setIsCodeViewerOpen] = useState<boolean>(false);
+  const [codeViewerContent, setCodeViewerContent] = useState<CodeViewerContent>({ code: '', language: undefined });
+
+  const handleOpenCodeViewer = useCallback((code: string, language?: string) => {
+    setCodeViewerContent({ code, language });
+    setIsCodeViewerOpen(true);
+  }, []);
+
+  const handleCloseCodeViewer = useCallback(() => {
+    setIsCodeViewerOpen(false);
+    // Optionally reset content: setCodeViewerContent({ code: '', language: undefined });
+  }, []);
 
   const resetChat = () => {
     setChatHistory([]);
     setChatSession(null);
     setCurrentChatInput('');
-    // setError(null); // Optionally clear general errors too, or manage them separately
   };
 
   // --- Attribute Handlers ---
@@ -80,14 +99,14 @@ const App: React.FC = () => {
   // --- Domain Handler ---
   const handleSelectDomain = (domainId: string | null) => {
     setSelectedDomainId(domainId);
-    resetChat(); // Domain change likely implies new prompt context
+    resetChat(); 
   };
 
   const handleLoadExample = useCallback((example: ExamplePrompt) => {
     setBasePrompt(example.basePrompt);
     setAttributes(example.attributes.map(attr => ({ ...attr, id: generateId() })));
     setInputVariables(example.inputVariables ? example.inputVariables.map(v => ({ ...v, id: generateId() })) : []);
-    setSelectedDomainId(DOMAINS.find(d => d.id === 'general')?.id || null); // Reset domain on example load or detect from example
+    setSelectedDomainId(DOMAINS.find(d => d.id === 'general')?.id || null); 
     resetChat();
     setError(null);
   }, []);
@@ -101,7 +120,7 @@ const App: React.FC = () => {
   const handleStartChat = useCallback(async () => {
     setIsResponding(true);
     setError(null);
-    resetChat(); // Clears old history and session
+    resetChat(); 
 
     const fullPromptText = generateFullPromptText(basePrompt, attributes, inputVariables);
     
@@ -219,9 +238,8 @@ const App: React.FC = () => {
         <p className="text-slate-500 mt-1 md:mt-2 text-base">Iteratively craft, test, and export structured AI prompts with dynamic variables and chat.</p>
       </header>
 
-      <div className="max-w-screen-2xl mx-auto grid grid-cols-1 xl:grid-cols-5 gap-6"> {/* Updated grid columns */}
-        {/* Left Column: Inputs, Attribute Management, Preview & Export */}
-        <div className="xl:col-span-3 space-y-6"> {/* Updated col-span */}
+      <div className="max-w-screen-2xl mx-auto grid grid-cols-1 xl:grid-cols-5 gap-6">
+        <div className="xl:col-span-3 space-y-6">
           <div className="bg-white p-6 rounded-xl shadow-lg space-y-6">
             <DomainSelector 
               domains={DOMAINS}
@@ -275,8 +293,7 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: Actions and Output */}
-        <div className="xl:col-span-2 space-y-6"> {/* Updated col-span */}
+        <div className="xl:col-span-2 space-y-6"> 
           <div className="bg-white p-6 rounded-xl shadow-lg space-y-4">
             <div className="flex items-center space-x-3 mb-2">
               <input
@@ -308,8 +325,9 @@ const App: React.FC = () => {
           <div className="bg-white p-6 rounded-xl shadow-lg sticky top-6 flex flex-col" style={{height: 'calc(100vh - 100px)', maxHeight: '800px'}}>
             <ChatDisplay 
               chatHistory={chatHistory} 
-              isLoading={isResponding && chatHistory.length > 0 && chatHistory[chatHistory.length-1].role === 'user'} // isLoading for follow-up
-              isStartingChat={isResponding && chatHistory.length === 0} // isLoading for initial chat start
+              isLoading={isResponding && chatHistory.length > 0 && chatHistory[chatHistory.length-1].role === 'user'} 
+              isStartingChat={isResponding && chatHistory.length === 0} 
+              onOpenCodeViewer={handleOpenCodeViewer} // Pass handler to ChatDisplay
             />
             {chatSession && ( 
               <ChatInput
@@ -326,6 +344,13 @@ const App: React.FC = () => {
       <footer className="mt-12 text-center text-sm text-slate-500">
         <p>&copy; {new Date().getFullYear()} PromptLab Studio. Experiment and iterate for the best results!</p>
       </footer>
+
+      <CodeViewerModal
+        isOpen={isCodeViewerOpen}
+        onClose={handleCloseCodeViewer}
+        code={codeViewerContent.code}
+        language={codeViewerContent.language}
+      />
     </div>
   );
 };

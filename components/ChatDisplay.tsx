@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { LoadingSpinnerIcon, ExternalLinkIcon, SparklesIcon, ClipboardDocumentIcon, CheckIcon } from './icons';
+import { LoadingSpinnerIcon, ExternalLinkIcon, SparklesIcon, CodeBracketIcon } from './icons'; // Removed ClipboardDocumentIcon, CheckIcon, Added CodeBracketIcon
 import { ChatMessage } from '../types'; 
 import ReactMarkdown from 'https://esm.sh/react-markdown@9';
 import remarkGfm from 'https://esm.sh/remark-gfm@4';
@@ -10,9 +10,10 @@ interface ChatDisplayProps {
   chatHistory: ChatMessage[];
   isLoading: boolean; 
   isStartingChat: boolean;
+  onOpenCodeViewer: (code: string, language?: string) => void; // New prop
 }
 
-const ChatDisplay: React.FC<ChatDisplayProps> = ({ chatHistory, isLoading, isStartingChat }) => {
+const ChatDisplay: React.FC<ChatDisplayProps> = ({ chatHistory, isLoading, isStartingChat, onOpenCodeViewer }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -23,45 +24,25 @@ const ChatDisplay: React.FC<ChatDisplayProps> = ({ chatHistory, isLoading, isSta
 
   const customRenderers = {
     code: ({ node, inline, className, children, ...props }) => {
-      const [isCopied, setIsCopied] = useState(false);
-      const codeString = String(children).replace(/\n$/, ''); // Remove trailing newline
-
-      const handleCopy = () => {
-        if (!codeString) return;
-        navigator.clipboard.writeText(codeString).then(() => {
-          setIsCopied(true);
-          setTimeout(() => setIsCopied(false), 2000); // Reset after 2 seconds
-        }).catch(err => {
-          console.error('Failed to copy code:', err);
-          alert('Failed to copy code. Ensure you are in a secure context (HTTPS) or have clipboard permissions.');
-        });
-      };
-
+      const codeString = String(children).replace(/\n$/, ''); 
       const match = /language-(\w+)/.exec(className || '');
+      const language = match ? match[1] : undefined;
 
       if (inline) {
-        // Custom styling for inline code to make it look clean, distinct from prose's default (which might add backticks)
         return <code className={`bg-slate-200 text-slate-800 px-1 py-0.5 rounded-sm text-xs font-mono ${className || ''}`} {...props}>{children}</code>;
       }
 
-      // For block code
+      // For block code, render a button to open the modal
       return (
-        <div className="relative group my-3"> {/* Spacing around code block */}
+        <div className="my-3">
           <button
-            onClick={handleCopy}
-            className="absolute top-2 right-2 z-10 p-1.5 bg-slate-600 text-white rounded-md text-xs opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-slate-700 disabled:opacity-50"
-            aria-label={isCopied ? "Copied!" : "Copy code to clipboard"}
-            title={isCopied ? "Copied!" : "Copy code to clipboard"}
-            disabled={isCopied}
+            onClick={() => onOpenCodeViewer(codeString, language)}
+            className="inline-flex items-center px-3 py-1.5 bg-slate-200 text-slate-700 rounded-md text-xs hover:bg-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            aria-label={`View ${language || 'code'} block`}
           >
-            {isCopied ? <CheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
+            <CodeBracketIcon className="w-4 h-4 mr-1.5" />
+            View {language ? `${language.charAt(0).toUpperCase() + language.slice(1)} ` : ''}Code Block
           </button>
-          {/* The <pre> and <code> tags will be styled by Tailwind Typography's `prose` classes */}
-          <pre className={`${className || ''} rounded-md overflow-x-auto`} {...props}>
-            <code className={match ? `language-${match[1]}` : ''}>
-              {children}
-            </code>
-          </pre>
         </div>
       );
     }

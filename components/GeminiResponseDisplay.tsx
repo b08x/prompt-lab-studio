@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react'; // Added useState
-import { LoadingSpinnerIcon, ExternalLinkIcon, ClipboardDocumentIcon, CheckIcon } from './icons'; // Added ClipboardDocumentIcon, CheckIcon
+import React, { useState } from 'react'; 
+import { LoadingSpinnerIcon, ExternalLinkIcon, CodeBracketIcon } from './icons'; // Removed ClipboardDocumentIcon, CheckIcon. Added CodeBracketIcon
 import { GeminiResponse as GeminiResponseType } from '../types';
 import ReactMarkdown from 'https://esm.sh/react-markdown@9';
 import remarkGfm from 'https://esm.sh/remark-gfm@4';
@@ -9,43 +9,43 @@ interface GeminiResponseDisplayProps {
   response: GeminiResponseType | null;
   isLoading: boolean;
   error: string | null;
+  // Add this prop if you intend to use the code modal pattern here as well:
+  onOpenCodeViewer?: (code: string, language?: string) => void; 
 }
 
-const GeminiResponseDisplay: React.FC<GeminiResponseDisplayProps> = ({ response, isLoading, error }) => {
+const GeminiResponseDisplay: React.FC<GeminiResponseDisplayProps> = ({ response, isLoading, error, onOpenCodeViewer }) => {
   
   const customRenderers = {
     code: ({ node, inline, className, children, ...props }) => {
-      const [isCopied, setIsCopied] = useState(false);
       const codeString = String(children).replace(/\n$/, '');
-
-      const handleCopy = () => {
-        if (!codeString) return;
-        navigator.clipboard.writeText(codeString).then(() => {
-          setIsCopied(true);
-          setTimeout(() => setIsCopied(false), 2000);
-        }).catch(err => {
-          console.error('Failed to copy code:', err);
-          alert('Failed to copy code. Ensure you are in a secure context (HTTPS) or have clipboard permissions.');
-        });
-      };
-
       const match = /language-(\w+)/.exec(className || '');
+      const language = match ? match[1] : undefined;
 
       if (inline) {
         return <code className={`bg-slate-200 text-slate-800 px-1 py-0.5 rounded-sm text-xs font-mono ${className || ''}`} {...props}>{children}</code>;
       }
 
+      // If onOpenCodeViewer is provided, use the button pattern
+      if (onOpenCodeViewer) {
+        return (
+          <div className="my-3">
+            <button
+              onClick={() => onOpenCodeViewer(codeString, language)}
+              className="inline-flex items-center px-3 py-1.5 bg-slate-200 text-slate-700 rounded-md text-xs hover:bg-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              aria-label={`View ${language || 'code'} block`}
+            >
+              <CodeBracketIcon className="w-4 h-4 mr-1.5" />
+              View {language ? `${language.charAt(0).toUpperCase() + language.slice(1)} ` : ''}Code Block
+            </button>
+          </div>
+        );
+      }
+
+      // Fallback to original rendering if onOpenCodeViewer is not provided (or keep original complex renderer if preferred for this specific component)
+      // For simplicity in this refactor, I'll remove the direct copy button here, assuming modal is preferred.
+      // If this component needs its own copy button, the original logic could be reinstated or adapted.
       return (
         <div className="relative group my-3">
-          <button
-            onClick={handleCopy}
-            className="absolute top-2 right-2 z-10 p-1.5 bg-slate-600 text-white rounded-md text-xs opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-slate-700 disabled:opacity-50"
-            aria-label={isCopied ? "Copied!" : "Copy code to clipboard"}
-            title={isCopied ? "Copied!" : "Copy code to clipboard"}
-            disabled={isCopied}
-          >
-            {isCopied ? <CheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
-          </button>
           <pre className={`${className || ''} rounded-md overflow-x-auto`} {...props}>
             <code className={match ? `language-${match[1]}` : ''}>
               {children}

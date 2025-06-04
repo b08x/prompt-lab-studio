@@ -1,15 +1,15 @@
 
-import React, { useEffect, useRef } from 'react';
-import { LoadingSpinnerIcon, ExternalLinkIcon, SparklesIcon } from './icons';
+import React, { useEffect, useRef, useState } from 'react';
+import { LoadingSpinnerIcon, ExternalLinkIcon, SparklesIcon, ClipboardDocumentIcon, CheckIcon } from './icons';
 import { ChatMessage } from '../types'; 
 import ReactMarkdown from 'https://esm.sh/react-markdown@9';
 import remarkGfm from 'https://esm.sh/remark-gfm@4';
-import ChatExportButton from './ChatExportButton'; // New import
+import ChatExportButton from './ChatExportButton';
 
 interface ChatDisplayProps {
   chatHistory: ChatMessage[];
-  isLoading: boolean; // True if waiting for a model response to a follow-up.
-  isStartingChat: boolean; // True if the very first message of a new chat is being generated.
+  isLoading: boolean; 
+  isStartingChat: boolean;
 }
 
 const ChatDisplay: React.FC<ChatDisplayProps> = ({ chatHistory, isLoading, isStartingChat }) => {
@@ -20,6 +20,52 @@ const ChatDisplay: React.FC<ChatDisplayProps> = ({ chatHistory, isLoading, isSta
   };
 
   useEffect(scrollToBottom, [chatHistory]);
+
+  const customRenderers = {
+    code: ({ node, inline, className, children, ...props }) => {
+      const [isCopied, setIsCopied] = useState(false);
+      const codeString = String(children).replace(/\n$/, ''); // Remove trailing newline
+
+      const handleCopy = () => {
+        if (!codeString) return;
+        navigator.clipboard.writeText(codeString).then(() => {
+          setIsCopied(true);
+          setTimeout(() => setIsCopied(false), 2000); // Reset after 2 seconds
+        }).catch(err => {
+          console.error('Failed to copy code:', err);
+          alert('Failed to copy code. Ensure you are in a secure context (HTTPS) or have clipboard permissions.');
+        });
+      };
+
+      const match = /language-(\w+)/.exec(className || '');
+
+      if (inline) {
+        // Custom styling for inline code to make it look clean, distinct from prose's default (which might add backticks)
+        return <code className={`bg-slate-200 text-slate-800 px-1 py-0.5 rounded-sm text-xs font-mono ${className || ''}`} {...props}>{children}</code>;
+      }
+
+      // For block code
+      return (
+        <div className="relative group my-3"> {/* Spacing around code block */}
+          <button
+            onClick={handleCopy}
+            className="absolute top-2 right-2 z-10 p-1.5 bg-slate-600 text-white rounded-md text-xs opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-slate-700 disabled:opacity-50"
+            aria-label={isCopied ? "Copied!" : "Copy code to clipboard"}
+            title={isCopied ? "Copied!" : "Copy code to clipboard"}
+            disabled={isCopied}
+          >
+            {isCopied ? <CheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
+          </button>
+          {/* The <pre> and <code> tags will be styled by Tailwind Typography's `prose` classes */}
+          <pre className={`${className || ''} rounded-md overflow-x-auto`} {...props}>
+            <code className={match ? `language-${match[1]}` : ''}>
+              {children}
+            </code>
+          </pre>
+        </div>
+      );
+    }
+  };
 
   if (chatHistory.length === 0 && !isStartingChat) {
     return (
@@ -32,7 +78,7 @@ const ChatDisplay: React.FC<ChatDisplayProps> = ({ chatHistory, isLoading, isSta
     );
   }
   
-  if (isStartingChat) { // Initial message is being generated
+  if (isStartingChat) {
      return (
       <div className="flex-grow p-4 border border-slate-200 rounded-lg bg-white shadow flex flex-col items-center justify-center min-h-[150px]">
         <LoadingSpinnerIcon className="w-8 h-8 text-sky-500" />
@@ -41,25 +87,24 @@ const ChatDisplay: React.FC<ChatDisplayProps> = ({ chatHistory, isLoading, isSta
     );
   }
 
-
   return (
     <div className="flex-grow flex flex-col space-y-4 p-1 overflow-y-auto mb-4">
       <div className="flex justify-between items-center sticky top-0 bg-white py-3 z-10 border-b px-3 -mx-3">
         <h3 className="text-lg font-semibold text-slate-700">Chat</h3>
         <ChatExportButton chatHistory={chatHistory} disabled={isLoading || isStartingChat || chatHistory.length === 0} />
       </div>
-      <div className="space-y-4 flex-grow overflow-y-auto p-3 -m-3" style={{maxHeight: 'calc(100% - 110px)'}}> {/* Adjust max height if ChatInput or header changes size */}
+      <div className="space-y-4 flex-grow overflow-y-auto p-3 -m-3" style={{maxHeight: 'calc(100% - 110px)'}}>
         {chatHistory.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div 
-              className={`max-w-[85%] p-3 rounded-xl shadow-md ${ // Slightly increased max-width for wider chat
+              className={`max-w-[90%] p-3 rounded-xl shadow-md overflow-hidden ${
                 msg.role === 'user' 
                   ? 'bg-sky-500 text-white' 
                   : (msg.error ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-slate-100 text-slate-800')
               }`}
             >
               <div className="prose prose-sm max-w-none break-words">
-                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                 <ReactMarkdown components={customRenderers} remarkPlugins={[remarkGfm]}>
                     {msg.text}
                  </ReactMarkdown>
               </div>
@@ -98,7 +143,7 @@ const ChatDisplay: React.FC<ChatDisplayProps> = ({ chatHistory, isLoading, isSta
         ))}
         {isLoading && chatHistory.length > 0 && chatHistory[chatHistory.length-1].role === 'user' && (
           <div className="flex justify-start">
-            <div className="max-w-[85%] p-3 rounded-xl shadow-md bg-slate-100 text-slate-800 flex items-center">
+            <div className="max-w-[90%] p-3 rounded-xl shadow-md bg-slate-100 text-slate-800 flex items-center">
               <LoadingSpinnerIcon className="w-5 h-5 text-sky-500 mr-2" />
               <span className="text-sm">Generating...</span>
             </div>

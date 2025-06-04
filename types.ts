@@ -4,6 +4,8 @@ export interface PromptAttribute {
   name: string;
   value: string;
   description?: string;
+  valueType?: 'text' | 'select';
+  valueOptions?: string[];
 }
 
 export enum PredefinedAttributeKey {
@@ -45,7 +47,7 @@ export interface ExamplePrompt {
   name: string;
   basePrompt: string;
   attributes: Omit<PromptAttribute, 'id'>[];
-  inputVariables?: Omit<InputVariable, 'id'>[]; // Optional: examples can also define variables
+  inputVariables?: Omit<InputVariable, 'id'>[];
 }
 
 export interface GroundingChunk {
@@ -57,16 +59,36 @@ export interface GroundingChunk {
     uri: string;
     title: string;
   };
-  // Add other potential grounding source types if needed
 }
 
-export interface GeminiResponse {
+export interface GeminiResponse { // This is now primarily for the raw response from the service
   text: string;
   groundingChunks?: GroundingChunk[];
 }
 
 export interface InputVariable {
   id: string;
-  name: string; // Stored without delimiters, e.g., "username"
+  name: string;
   testValue: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  timestamp: Date;
+  groundingChunks?: GroundingChunk[];
+  error?: string; // For displaying errors specific to a message generation
+}
+
+export interface Domain {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface DomainAttributeValueConfig {
+  domainId: string; // ID of the Domain this config applies to
+  attributeName: string; // Name of the attribute (can be PredefinedAttributeKey or custom string)
+  valueOptions: string[]; // Array of string options for the attribute's value
 }

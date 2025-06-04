@@ -1,0 +1,5 @@
+{
+  "name": "PromptLab Studio",
+  "description": "A web application to craft, refine, and test prompts for AI models with iterative experimentation and structured attributes.",
+  "requestFramePermissions": []
+}
